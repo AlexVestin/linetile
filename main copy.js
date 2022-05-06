@@ -1,11 +1,12 @@
 const scale = 32;
 let totalCount = 0;
+let mode = 0;
 
-let p0 =  {x: 152.026,y: 331.354} 
-let p1 =  {x: 166.942, y: 340.26} 
+let p0 = { x: 152.026, y: 331.354 };
+let p1 = { x: 166.942, y: 340.26 };
 
-const prefs = [p0, p1];
 let pcounter = 0;
+let rotationAmount = 0;
 
 const canvas = document.createElement("canvas");
 
@@ -13,9 +14,8 @@ canvas.width = 2048;
 canvas.height = 2048;
 document.body.appendChild(canvas);
 const ctx = canvas.getContext("2d");
-ctx.scale(scale, scale);
 
-const PADDING = 1;
+const PADDING = 2;
 const LINE_OFFSET = PADDING;
 const TILE_SIZE = 16;
 const NEGATION = TILE_SIZE - PADDING;
@@ -47,9 +47,11 @@ const lineColl = (p0, p1) => {
   const x_dir = line.x < 0 ? -1 : 1; //Math.sign(line.x);
   const y_dir = line.y < 0 ? -1 : 1; //Math.sign(line.y);
 
-  if(Math.abs(line.x*line.x + line.y*line.y) < F_EPSILON) {
+  if (Math.abs(line.x * line.x + line.y * line.y) < F_EPSILON) {
     return;
   }
+
+  const lutning = line.x / line.y;
 
   let tl_x = get_tile(Math.floor(p0.x));
   let tl_y = get_tile(Math.floor(p0.y));
@@ -62,9 +64,13 @@ const lineColl = (p0, p1) => {
   const y_step = y_dir * PADDING;
   const y_long_step = y_dir * (TILE_SIZE - 2 * PADDING);
 
+  const yx_step      = 2*y_dir*(PADDING) * lutning;
+  const yx_long_step = y_dir*(TILE_SIZE - 2*PADDING) * lutning;
+
+
   let next_x = 0;
   let zone_x = 0;
-  
+
   let next_y = 0;
   let zone_y = 0;
 
@@ -95,7 +101,6 @@ const lineColl = (p0, p1) => {
   ctx.save();
   ctx.fillStyle = "red";
   ctx.globalAlpha = 0.3;
-  
 
   const lookup = {};
 
@@ -106,84 +111,113 @@ const lineColl = (p0, p1) => {
       alert(`Repeated positions: ${x}x${y}`);
     }
     lookup[n] = 1;
-  }
+    return 1;
+  };
 
-  fill(tl_x, tl_y);
+  let count = 0;
+
+  count += fill(tl_x, tl_y);
   if ((zone_x & 1) + (zone_y & 1) === 0) {
-    fill(tl_x - TILE_SIZE, tl_y, TILE_SIZE);
-    fill(tl_x - TILE_SIZE, tl_y - TILE_SIZE);
-    fill(tl_x, tl_y - TILE_SIZE);
+    count += fill(tl_x - TILE_SIZE, tl_y, TILE_SIZE);
+    count += fill(tl_x - TILE_SIZE, tl_y - TILE_SIZE);
+    count += fill(tl_x, tl_y - TILE_SIZE);
   } else if ((zone_x & 1) == 0) {
-    fill(tl_x - TILE_SIZE, tl_y);
+    count += fill(tl_x - TILE_SIZE, tl_y);
   } else if ((zone_y & 1) == 0) {
-    fill(tl_x, tl_y - TILE_SIZE);
+    count += fill(tl_x, tl_y - TILE_SIZE);
   }
-
 
   const get_next_yx = () => {
-    const line = [{ x: -10000, y: next_y }, { x: 10000, y: next_y }];
+    const line = [
+      { x: -10000, y: next_y },
+      { x: 10000, y: next_y },
+    ];
     let t = IntersectsLines(line[0], line[1], p0, p1);
     return p0.x + t * (p1.x - p0.x);
-  }
+  };
 
   let next_yx = get_next_yx();
 
-  const is_vertical   = Math.abs(line.x) <= F_EPSILON;
+  const is_vertical = Math.abs(line.x) <= F_EPSILON;
   const is_horizontal = Math.abs(line.y) <= F_EPSILON;
 
-  next_yx = is_horizontal   ? Infinity : next_yx;
-  next_x  = is_vertical     ? Infinity : next_x;
+  next_yx = is_horizontal ? Infinity : next_yx;
+  next_x = is_vertical ? Infinity : next_x;
 
   tl_x += Number(!(zone_x & 1) && x_dir < 0) * TILE_SIZE * x_dir;
   tl_y += Number(!(zone_y & 1) && y_dir < 0) * TILE_SIZE * y_dir;
 
-  let counter = 0; 
+
+
+  let counter = 0;
 
   const emitX = () => {
-    if ((zone_x & 1)) {
-      fill(tl_x, tl_y);
-      if(!(zone_y & 1)) {
-        fill(tl_x, tl_y - TILE_SIZE * y_dir);
+    if (zone_x & 1) {
+      count += fill(tl_x, tl_y);
+      if (!(zone_y & 1)) {
+        count += fill(tl_x, tl_y - TILE_SIZE * y_dir);
       }
     }
-  }
+  };
 
   const emitY = () => {
-    if ((zone_y & 1)) {
-      fill(tl_x, tl_y);
+    if (zone_y & 1) {
+      count += fill(tl_x, tl_y);
       if (!(zone_x & 1)) {
-        fill(tl_x - TILE_SIZE * x_dir, tl_y);
+        count += fill(tl_x - TILE_SIZE * x_dir, tl_y);
       }
     }
-  }
+  };
 
-  while (1) {
-    const done_x = is_vertical || (x_dir < 0 && next_x <= p1.x) || (x_dir > 0 && next_x >= p1.x);
-    const done_y = is_horizontal || (y_dir < 0 && next_y <= p1.y) || (y_dir > 0 && next_y >= p1.y);
+  const y_steps = [yx_long_step, yx_step];
+  const x_steps = [x_long_step, x_step * 2];
+
+  const next_x2 = next_x + x_steps[zone_x];
+  const dx1 = Number((x_dir < 0 && p1.x < next_x) || (x_dir > 0 && p1.x >= next_x)) + Math.floor((Math.abs(p1.x - next_x) / TILE_SIZE));
+  const dx2 = Number((x_dir < 0 && p1.x < next_x2) || (x_dir > 0 && p1.x >= next_x2)) + Math.floor((Math.abs(p1.x - next_x2) / TILE_SIZE));
+
+  const next_y2 = next_y + ((zone_y & 1) ? 2*PADDING*y_dir : (TILE_SIZE - 2*PADDING)*y_dir);
+  const yx1 = Number((y_dir < 0 && p1.y < next_y) || (y_dir > 0 && p1.y >= next_y)) + Math.floor((Math.abs(p1.y - next_y) / TILE_SIZE));
+  const yx2 = Number((y_dir < 0 && p1.y < next_y2) || (y_dir > 0 && p1.y >= next_y2)) + Math.floor((Math.abs(p1.y - next_y2) / TILE_SIZE));
+
+
+  for(let i = 0; i < dx1 + dx2 + yx1 + yx2; i++) {
+    //const done_x =
+    //  is_vertical ||
+    //  (x_dir < 0 && next_x < p1.x) ||
+    //  (x_dir > 0 && next_x > p1.x);
+    //const done_y =
+    //  is_horizontal ||
+    //  (x_dir < 0 && next_yx < p1.x) ||
+    //  (x_dir > 0 && next_yx > p1.x);
     if (counter++ > 2000) {
-      console.log(done_x, done_y, is_horizontal, is_vertical);
-      break;
-    } 
-
-    if (done_x && done_y) {
+      console.error(done_x, done_y, is_horizontal, is_vertical);
       break;
     }
 
-    if (Math.abs(next_x - p0.x) > Math.abs(next_yx - p0.x)) {   
-      tl_y += TILE_SIZE * y_dir * Number(zone_y & 1);   
-      emitY();      
-      next_y += (zone_y & 1) ? y_step * 2 : y_long_step;
-      zone_y++;      
-      next_yx = get_next_yx();
+    // if (done_x && done_y) {
+    //   console.log("cnt2", counter2, dx1 + dx2 + yx1 + yx2);
+    //   break;
+    // }
+    if (Math.abs(next_x - p0.x) > Math.abs(next_yx - p0.x)) {
+      tl_y += TILE_SIZE * y_dir * Number(zone_y & 1);
+      emitY();
+      next_yx += y_steps[zone_y % 2]; //(zone_y & 1) ? yx_step : yx_long_step;
+      zone_y++;
     } else {
       tl_x += TILE_SIZE * x_dir * Number(zone_x & 1);
       emitX();
-      next_x += (zone_x & 1) ? x_step * 2 : x_long_step;
+      next_x += x_steps[zone_x % 2];
       zone_x++;
     }
   }
 
-  const xyt = IntersectsLines({ x: next_x, y: -10000 }, {x: next_x, y: 10000}, p0, p1);
+  const xyt = IntersectsLines(
+    { x: next_x, y: -10000 },
+    { x: next_x, y: 10000 },
+    p0,
+    p1
+  );
   const next_xy = p0.y + xyt * line.y;
 
   ctx.fillStyle = "blue";
@@ -200,18 +234,148 @@ const lineColl = (p0, p1) => {
   ctx.restore();
 };
 
+const xiaolinWu = (p0, p1) => {
+  const fpart = (x) => x - Math.floor(x);
+  const rfpart = (x) => 1 - fpart(x);
+  const ipart = (x) => Math.floor(x);
+  const plot = (x, y, a) => {
+    ctx.globalAlpha = 0.3;
+    ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+  };
+
+  let x0 = p0.x / TILE_SIZE;
+  let y0 = p0.y / TILE_SIZE;
+  let x1 = p1.x / TILE_SIZE;
+  let y1 = p1.y / TILE_SIZE;
+
+  const steep = Math.abs(y1 - y0) > Math.abs(x1 - x0);
+
+  if (steep) {
+    [x0, y0] = [y0, x0];
+    [x1, y1] = [y1, x1];
+  }
+
+  if (x0 > x1) {
+    [x0, x1] = [x1, x0];
+    [y0, y1] = [y1, y0];
+  }
+
+  const dx = x1 - x0;
+  const dy = y1 - y0;
+
+  let gradient = 1.0;
+  if (dx !== 0) {
+    gradient = dy / dx;
+  }
+
+  let xend = Math.round(x0);
+  let yend = y0 + gradient * (xend - x0);
+  let xgap = rfpart(x0 + 0.5);
+  let xpxl1 = xend;
+  let ypxl1 = ipart(yend);
+  // if (steep) {
+  //   plot(ypxl1,   xpxl1, rfpart(yend) * xgap)
+  //   plot(ypxl1+1, xpxl1,  fpart(yend) * xgap)
+  // } else {
+  //   plot(xpxl1, ypxl1  , rfpart(yend) * xgap)
+  //   plot(xpxl1, ypxl1+1,  fpart(yend) * xgap)
+  // }
+
+  let intery = yend + gradient;
+  xend = Math.round(x1);
+  yend = y1 + gradient * (xend - x1);
+  xgap = fpart(x1 + 0.5);
+  let xpxl2 = xend; //this will be used in the main loop
+  let ypxl2 = ipart(yend);
+
+  // if (steep) {
+  //   plot(ypxl2  , xpxl2, rfpart(yend) * xgap)
+  //   plot(ypxl2+1, xpxl2,  fpart(yend) * xgap)
+  // } else {
+  //   plot(xpxl2, ypxl2,  rfpart(yend) * xgap)
+  //   plot(xpxl2, ypxl2+1, fpart(yend) * xgap)
+  // }
+
+  console.log("xcx", xpxl1, xpxl2);
+
+  if (steep) {
+    // for(let x = xpxl1 + 1; x <= xpxl2 - 1; x++) {
+    //   plot(ipart(intery)  , x, rfpart(intery));
+    //   plot(ipart(intery)+1, x,  fpart(intery));
+    //   intery = intery + gradient;
+    // }
+  } else {
+    let c = 0;
+    for (let x = xpxl1 + 1; x <= xpxl2 - 1; x++) {
+      plot(x, ipart(intery), rfpart(intery));
+      plot(x, ipart(intery) + 1, fpart(intery));
+      intery = intery + gradient;
+      console.log(yend, x, intery);
+      // if(c++ == 1) {
+      //   break;
+      // }
+    }
+  }
+};
+
+const raColl = (start, end) => {
+  const difX = (end.x - start.x) / TILE_SIZE;
+  const difY = (end.y - start.y) / TILE_SIZE;
+  const dist = Math.ceil(Math.abs(difX) + Math.abs(difY) + 2 * TILE_SIZE);
+  const dx = difX / dist;
+  const dy = difY / dist;
+
+  let sx = start.x / TILE_SIZE;
+  let sy = start.y / TILE_SIZE;
+
+  ctx.fillStyle = "purple";
+  ctx.globalAlpha = 0.3;
+
+  for (let i = 0; i <= dist; i++) {
+    const x = Math.floor(sx + dx * i);
+    const y = Math.floor(sy + dy * i);
+    // draw(x,y);
+    ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+  }
+  ctx.globalAlpha = 1.0;
+};
+
 const render = () => {
   ctx.save();
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.scale(scale, scale);
+  // let cx =  (p0.x + p1.x) / 2;
+  // let cy =  (p0.y + p1.y) / 2;
+  // const l = { x: p1.x - p0.x, y: p1.y - p0.y};
+  // let r =  -Math.atan2(l.y, l.x);
+  // ctx.translate(cx, cy);
+  // ctx.rotate(r * rotationAmount);
+  // ctx.translate(-cx, -cy);
+
   ctx.fillStyle = "white";
   ctx.fillRect(0, 0, 2048, 2048);
   ctx.strokeStyle = "black";
   ctx.lineWidth = 1 / scale;
 
-  if (pcounter % 2) {
-    lineColl(p0, p1);
-  } else {
-   lineColl(p1, p0);
+  ctx.globalAlpha = 0.3;
+  switch (mode % 3) {
+    case 0: {
+      ctx.fillStyle = "red";
+      lineColl(p0, p1);
+      break;
+    }
+    case 1: {
+      ctx.fillStyle = "purple";
+      xiaolinWu(p0, p1);
+      break;
+    }
+    case 2:
+      ctx.fillStyle = "blue";
+      raColl(p0, p1);
+      break;
   }
+
+  ctx.globalAlpha = 1.0;
 
   ctx.beginPath();
   ctx.lineWidth = 2 / scale;
@@ -229,8 +393,22 @@ const render = () => {
   ctx.moveTo(p0.x, p0.y);
   ctx.lineTo(p1.x, p1.y);
   ctx.stroke();
+  let drawBoxes = true;
+  if (drawBoxes) {
+    ctx.fillStyle = "green";
+    for (let i = 0; i < 128; i++) {
+      for (let j = 0; j < 128; j++) {
+        ctx.fillRect(
+          i * 16 - PADDING,
+          j * TILE_SIZE - PADDING,
+          PADDING * 2,
+          PADDING * 2
+        );
+      }
+    }
+  }
 
-  if(scale > 4) {
+  if (scale > 4) {
     ctx.beginPath();
     ctx.strokeStyle = "black";
     ctx.lineWidth = 1 / scale;
@@ -242,7 +420,7 @@ const render = () => {
       ctx.lineTo(i, 2048);
     }
     ctx.stroke();
-  
+
     ctx.save();
     ctx.globalAlpha = 0.6;
     ctx.lineWidth = 2 / scale;
@@ -263,8 +441,7 @@ const render = () => {
     }
 
     ctx.restore();
-
-}
+  }
   ctx.fillColor = "green";
   ctx.globalAlpha = 1;
   ctx.fillRect(p0.x - 0.25, p0.y - 0.25, 0.5, 0.5);
@@ -274,32 +451,41 @@ const render = () => {
 
 let mouseDown = false;
 canvas.onmousedown = (e) => {
-  return;
-  const i = pcounter++ % 2;
   const rect = e.target.getBoundingClientRect();
   const x = e.clientX - rect.left; //x position within the element.
   const y = e.clientY - rect.top; //y position within the element.
 
-  prefs[i].x = x / scale;
-  prefs[i].y = y / scale;
+  p0.x = x / scale;
+  p0.y = y / scale;
   render();
   mouseDown = true;
+  rotationAmount = 0;
 };
 
 window.onmousemove = (e) => {
   if (!mouseDown) return;
-  const i = pcounter % 2;
   const rect = e.target.getBoundingClientRect();
   const x = e.clientX - rect.left; //x position within the element.
   const y = e.clientY - rect.top; //y position within the element.
 
-  prefs[i].x = x / scale;
-  prefs[i].y = y / scale;
+  p1.x = x / scale;
+  p1.y = y / scale;
   render();
 };
 
 window.onmouseup = () => {
   mouseDown = false;
+  const rotationTime = 10;
+  let timer = rotationTime;
+  const animate = () => {
+    rotationAmount = 1 - timer / rotationTime;
+    if (timer >= 0) {
+      render();
+      requestAnimationFrame(animate);
+    }
+    timer--;
+  };
+  requestAnimationFrame(animate);
 };
 
 //render();
@@ -315,21 +501,21 @@ const load = async () => {
   const parseLine = (line) => {
     const parts = line.split(" ");
     if (parts.length !== 3) {
-      return {x: 0, y: 0, type: "M"}
+      return { x: 0, y: 0, type: "M" };
     }
     const type = parts[0];
     const s = 1.0;
     const x = (Number(parts[1]) - 70) * s;
     const y = (Number(parts[2]) - 190) * s;
-    return {x, y, type}
-  }
+    return { x, y, type };
+  };
 
   const renderLine = (line) => {
-    const {x, y} = parseLine(line);
+    const { x, y } = parseLine(line);
     p0 = prev;
-    p1 = {x, y};
-    prev = {x, y};
-  }
+    p1 = { x, y };
+    prev = { x, y };
+  };
 
   window.onkeydown = () => {
     renderLine(lines[counter++]);
@@ -339,11 +525,11 @@ const load = async () => {
     ctx.beginPath();
     ctx.globalAlpha = 0.3;
     ctx.strokeStyle = "black";
-    ctx.lineWidth = 1. / (scale);
-    ctx.globalCompositeOperation = "src-under"
-    for(const line of lines) {
-      const {type, x, y} = parseLine(line);
-      if(type === "M") {
+    ctx.lineWidth = 1 / scale;
+    ctx.globalCompositeOperation = "src-under";
+    for (const line of lines) {
+      const { type, x, y } = parseLine(line);
+      if (type === "M") {
         ctx.moveTo(x, y);
       } else {
         ctx.lineTo(x, y);
@@ -352,7 +538,41 @@ const load = async () => {
 
     ctx.stroke();
     ctx.restore();
-  }
-}
-load();
+  };
+};
+//load();
 render();
+
+window.onkeydown = (e) => {
+  rotationAmount = 0;
+  switch (e.key) {
+    case "ArrowUp": {
+      p0.y -= 0.25;
+      p1.y -= 0.25;
+      break;
+    }
+    case "ArrowDown": {
+      p0.y += 0.25;
+      p1.y += 0.25;
+      break;
+    }
+    case "ArrowLeft": {
+      p0.x -= 0.25;
+      p1.x -= 0.25;
+      break;
+    }
+    case "ArrowRight": {
+      p0.x += 0.25;
+      p1.x += 0.25;
+      break;
+    }
+    case "s": {
+      mode++;
+      console.log("Modechange");
+      break;
+    }
+  }
+  console.log("Keydown");
+  render();
+  e.preventDefault();
+};
