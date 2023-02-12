@@ -1,12 +1,23 @@
-const scale = 32;
+const scale = 12;
 let totalCount = 0;
 let mode = 0;
 
-let p0 = { x: 152.026, y: 331.354 };
-let p1 = { x: 166.942, y: 340.26 };
+// 60,1885
+//299.805,1885
+let p0 = { x: 60, y: 1885 };
+let p1 = { x: 299.805, y: 1885};
+
+
+// 193
+// 95 -> 193 + 95 == 288
 
 let pcounter = 0;
 let rotationAmount = 0;
+
+
+const EDGE_ZONE = 0;
+const CENTER_ZONE = 1;
+
 
 const canvas = document.createElement("canvas");
 
@@ -14,6 +25,9 @@ canvas.width = 2048;
 canvas.height = 2048;
 document.body.appendChild(canvas);
 const ctx = canvas.getContext("2d");
+
+const width = 2048;
+const height = 1536;
 
 const PADDING = 2;
 const LINE_OFFSET = PADDING;
@@ -43,15 +57,34 @@ const IntersectsLines = (b1, b2, a1, a2) => {
 };
 
 const lineColl = (p0, p1) => {
+  const lookup = {};
+  const t0 = performance.now();
+
+  const fill = (x, y, c = "red") => {
+    console.log(x, y);
+    if(y >= 0 && y < height) {
+      ctx.save();
+      ctx.fillStyle = c;
+      ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+      // const n = (x & 0xffff) | (y << 16);
+      // if (lookup[n] && c !== "blue") {
+      //   alert(`Repeated positions: ${x}x${y}`);
+      // }
+      // lookup[n] = 1;
+      ctx.restore();
+      return 1;
+    } 
+    return 0;
+  };
+
   const line = { x: p1.x - p0.x, y: p1.y - p0.y };
-  const x_dir = line.x < 0 ? -1 : 1; //Math.sign(line.x);
-  const y_dir = line.y < 0 ? -1 : 1; //Math.sign(line.y);
+  const x_dir = Math.sign(line.x);
+  const y_dir = Math.sign(line.y);
+  const is_vertical = Math.abs(line.x) <= F_EPSILON;
+  const is_horizontal = Math.abs(line.y) <= F_EPSILON;
 
-  if (Math.abs(line.x * line.x + line.y * line.y) < F_EPSILON) {
-    return;
-  }
-
-  const lutning = line.x / line.y;
+  const derivate     = is_horizontal ? line.x : line.x / line.y;
+  const inv_derivate = is_vertical  ? line.y : line.y / line.x;
 
   let tl_x = get_tile(Math.floor(p0.x));
   let tl_y = get_tile(Math.floor(p0.y));
@@ -64,9 +97,9 @@ const lineColl = (p0, p1) => {
   const y_step = y_dir * PADDING;
   const y_long_step = y_dir * (TILE_SIZE - 2 * PADDING);
 
-  const yx_step      = 2*y_dir*(PADDING) * lutning;
-  const yx_long_step = y_dir*(TILE_SIZE - 2*PADDING) * lutning;
 
+  const yx_step      = 2*y_dir*(PADDING) * derivate;
+  const yx_long_step = y_dir*(TILE_SIZE - 2*PADDING) * derivate;
 
   let next_x = 0;
   let zone_x = 0;
@@ -74,164 +107,187 @@ const lineColl = (p0, p1) => {
   let next_y = 0;
   let zone_y = 0;
 
+  zone_x = r_x >= PADDING && r_x < TILE_SIZE - PADDING ? CENTER_ZONE : EDGE_ZONE;
+  zone_y = r_y >= PADDING && r_y < TILE_SIZE - PADDING ? CENTER_ZONE : EDGE_ZONE;
+
   if (r_x < PADDING) {
     next_x = tl_x + x_step;
-    zone_x = 0;
   } else if (r_x < TILE_SIZE - PADDING) {
     next_x = tl_x + Number(x_dir > 0) * TILE_SIZE - x_step;
-    zone_x = 1;
   } else {
     tl_x += TILE_SIZE;
     next_x = tl_x + x_step;
-    zone_x = 0;
   }
-
   if (r_y < PADDING) {
     next_y = tl_y + y_step;
-    zone_y = 0;
   } else if (r_y < TILE_SIZE - PADDING) {
     next_y = tl_y + Number(y_dir > 0) * TILE_SIZE - y_step;
-    zone_y = 1;
   } else {
     tl_y += TILE_SIZE;
     next_y = tl_y + y_step;
-    zone_y = 0;
   }
-
-  ctx.save();
-  ctx.fillStyle = "red";
-  ctx.globalAlpha = 0.3;
-
-  const lookup = {};
-
-  const fill = (x, y) => {
-    ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
-    const n = (x & 0xffff) | (y << 16);
-    if (lookup[n]) {
-      alert(`Repeated positions: ${x}x${y}`);
-    }
-    lookup[n] = 1;
-    return 1;
-  };
+  // 896385
+  // 974269
+  // 896389 <<
 
   let count = 0;
-
   count += fill(tl_x, tl_y);
-  if ((zone_x & 1) + (zone_y & 1) === 0) {
+  if (zone_x === EDGE_ZONE && zone_y === EDGE_ZONE) {
     count += fill(tl_x - TILE_SIZE, tl_y, TILE_SIZE);
     count += fill(tl_x - TILE_SIZE, tl_y - TILE_SIZE);
     count += fill(tl_x, tl_y - TILE_SIZE);
-  } else if ((zone_x & 1) == 0) {
+  } else if (zone_x === EDGE_ZONE) {
     count += fill(tl_x - TILE_SIZE, tl_y);
-  } else if ((zone_y & 1) == 0) {
+  } else if (zone_y === EDGE_ZONE) {
     count += fill(tl_x, tl_y - TILE_SIZE);
   }
+  
+  tl_x -= Number(zone_x === EDGE_ZONE && x_dir < 0) * TILE_SIZE;
+  tl_y -= Number(zone_y === EDGE_ZONE && y_dir < 0) * TILE_SIZE;
 
-  const get_next_yx = () => {
-    const line = [
-      { x: -10000, y: next_y },
-      { x: 10000, y: next_y },
-    ];
-    let t = IntersectsLines(line[0], line[1], p0, p1);
-    return p0.x + t * (p1.x - p0.x);
-  };
+  //fill(tl_x, tl_y, "green")
 
-  let next_yx = get_next_yx();
+  let next_yx =  p0.x - (p0.y - next_y) * derivate;
 
-  const is_vertical = Math.abs(line.x) <= F_EPSILON;
-  const is_horizontal = Math.abs(line.y) <= F_EPSILON;
-
-  next_yx = is_horizontal ? Infinity : next_yx;
-  next_x = is_vertical ? Infinity : next_x;
-
-  tl_x += Number(!(zone_x & 1) && x_dir < 0) * TILE_SIZE * x_dir;
-  tl_y += Number(!(zone_y & 1) && y_dir < 0) * TILE_SIZE * y_dir;
-
-
-
-  let counter = 0;
+  next_yx = is_horizontal ? p0.x : next_yx;
+  next_x  = is_vertical ? p0.x : next_x;
 
   const emitX = () => {
-    if (zone_x & 1) {
+    if ((zone_x & 1) === 1) {
       count += fill(tl_x, tl_y);
-      if (!(zone_y & 1)) {
-        count += fill(tl_x, tl_y - TILE_SIZE * y_dir);
-      }
+      // if (!(zone_y & 1) && PADDING > 0) {
+      //   count += fill(tl_x, tl_y - TILE_SIZE * y_dir);
+      // }
     }
   };
 
   const emitY = () => {
-    if (zone_y & 1) {
+    if ((zone_y & 1) === 1) {
       count += fill(tl_x, tl_y);
-      if (!(zone_x & 1)) {
-        count += fill(tl_x - TILE_SIZE * x_dir, tl_y);
-      }
+      // if (!(zone_x & 1) && PADDING > 0) {
+      //   count += fill(tl_x - TILE_SIZE * x_dir, tl_y, "blue");
+      // }
     }
   };
 
-  const y_steps = [yx_long_step, yx_step];
+  const yx_steps = [yx_long_step, yx_step];
   const x_steps = [x_long_step, x_step * 2];
+  const y_steps = [y_long_step, y_step * 2];
 
-  const next_x2 = next_x + x_steps[zone_x];
-  const dx1 = Number((x_dir < 0 && p1.x < next_x) || (x_dir > 0 && p1.x >= next_x)) + Math.floor((Math.abs(p1.x - next_x) / TILE_SIZE));
-  const dx2 = Number((x_dir < 0 && p1.x < next_x2) || (x_dir > 0 && p1.x >= next_x2)) + Math.floor((Math.abs(p1.x - next_x2) / TILE_SIZE));
+  let tdx0 = 0;
+  let tdx1 = 0;
+  let tdy0 = 0;
+  let tdy1 = 0;
 
-  const next_y2 = next_y + ((zone_y & 1) ? 2*PADDING*y_dir : (TILE_SIZE - 2*PADDING)*y_dir);
-  const yx1 = Number((y_dir < 0 && p1.y < next_y) || (y_dir > 0 && p1.y >= next_y)) + Math.floor((Math.abs(p1.y - next_y) / TILE_SIZE));
-  const yx2 = Number((y_dir < 0 && p1.y < next_y2) || (y_dir > 0 && p1.y >= next_y2)) + Math.floor((Math.abs(p1.y - next_y2) / TILE_SIZE));
+  const oxs = [(p0.x - next_x), p0.x - (next_x + x_steps[zone_x])]
+  const oys = [(p0.y - next_y), p0.y - (next_y + y_steps[zone_y])]
+  
 
+  // ox = x_dir < 0 ? -(TILE_SIZE - ox) : ox;
+  if (!is_vertical) {
+    // tdx0 = ((line.x + oxs[zone_x])*x_dir + TILE_SIZE) >> 4;
+    tdx1 = ((line.x + oxs[1 - zone_x])*x_dir + TILE_SIZE) >> 4
+  } 
 
-  for(let i = 0; i < dx1 + dx2 + yx1 + yx2; i++) {
-    //const done_x =
-    //  is_vertical ||
-    //  (x_dir < 0 && next_x < p1.x) ||
-    //  (x_dir > 0 && next_x > p1.x);
-    //const done_y =
-    //  is_horizontal ||
-    //  (x_dir < 0 && next_yx < p1.x) ||
-    //  (x_dir > 0 && next_yx > p1.x);
-    if (counter++ > 2000) {
-      console.error(done_x, done_y, is_horizontal, is_vertical);
-      break;
+  if (!is_horizontal) {
+    // tdy0 = ((line.y + oys[zone_y]) * y_dir + TILE_SIZE) >> 4;
+    tdy1 = ((line.y + oys[1 - zone_y]) * y_dir + TILE_SIZE) >> 4;
+  }
+
+  const new_x = [];
+  const new_y = [];
+  const old_x = [];
+  const old_y = [];
+
+  const its = tdx0 + tdx1 + tdy0 + tdy1;
+  let dx = Math.abs(derivate);
+  let dy = Math.abs(inv_derivate) * TILE_SIZE;
+  
+  let dp0 = 1 + (Math.abs(oys[1 - zone_y] * derivate) + oxs[zone_x] * x_dir) / TILE_SIZE;
+  let dp1 = 1 + (Math.abs(oys[1 - zone_y] * derivate) + oxs[1 - zone_x] * x_dir) / TILE_SIZE;
+
+  console.log(dp0, dp1, derivate, oxs, oys)
+  
+  for (let i = 0; i < tdy1; i++) {
+    let zx0 = Math.floor(dp0);
+    let zx1 = Math.floor(dp1);
+    let zx  = zone_x + zx0 + zx1;
+  
+    const x = tl_x + zx1 * TILE_SIZE * x_dir;
+    const y = tl_y + (i + 1) * TILE_SIZE * y_dir; 
+    if((mode % 2) === 0) {
+      fill(x, y);
+      if (!(zx & 1) && PADDING > 0) {
+        fill(x - TILE_SIZE * x_dir, y);
+      }
     }
+    new_y.push(zx);   
+    dp0 += dx;
+    dp1 += dx;
+  }
+  
+  let dp = Math.abs(oxs[1 - zone_x] * inv_derivate) + TILE_SIZE;
+  for (let i = 0; i < tdx1; i++) {
+    let zy0 = (Math.abs(dp + oys[zone_y] * y_dir)) >> 4;
+    let zy1 = (Math.abs(dp + oys[1 - zone_y] * y_dir)) >> 4;
+    let zy  = zone_y + zy0 + zy1;
 
-    // if (done_x && done_y) {
-    //   console.log("cnt2", counter2, dx1 + dx2 + yx1 + yx2);
-    //   break;
-    // }
+    const x = tl_x + (i + 1) * TILE_SIZE * x_dir;
+    const y = tl_y + zy1 * TILE_SIZE * y_dir; 
+
+    if((mode % 2) === 0) {
+      fill(x, y);
+      if (!(zy & 1) && PADDING > 0) {
+        fill(x, y - TILE_SIZE * y_dir);
+      }
+    }
+   
+    dp += dy;
+    new_x.push(zy);
+  }
+
+ for (let i = 0; i < its; i++) {
     if (Math.abs(next_x - p0.x) > Math.abs(next_yx - p0.x)) {
       tl_y += TILE_SIZE * y_dir * Number(zone_y & 1);
-      emitY();
-      next_yx += y_steps[zone_y % 2]; //(zone_y & 1) ? yx_step : yx_long_step;
+      if(zone_y & 1) {
+        if((mode % 2) === 1) {
+          emitY();
+        }
+        old_y.push(zone_x);
+      }
+      
+      
+      next_yx += yx_steps[zone_y & 1];
       zone_y++;
     } else {
       tl_x += TILE_SIZE * x_dir * Number(zone_x & 1);
-      emitX();
-      next_x += x_steps[zone_x % 2];
+      
+      if(zone_x & 1) {
+        if((mode % 2) === 1) {
+          emitX();
+        }
+        
+        old_x.push(zone_y);
+      }
+      next_x += x_steps[zone_x & 1];
       zone_x++;
     }
+  } 
+  
+  let same_x = new_x.every((e, i) => e === old_x[i]) && new_x.length === old_x.length;
+  let same_y = new_y.every((e, i) => e === old_y[i]) && new_y.length === old_y.length;
+
+  //console.log(new_x, old_x, new_y, old_y, same_x, same_y)
+  if( !same_y || !same_x) {
+    //console.error("ERROR")
+    // alert("Error")
   }
 
-  const xyt = IntersectsLines(
-    { x: next_x, y: -10000 },
-    { x: next_x, y: 10000 },
-    p0,
-    p1
-  );
-  const next_xy = p0.y + xyt * line.y;
+  // vec2<u32>(abs(line.yy + y_steps.xy)) / TILE_SIZE;
+  
+ 
 
-  ctx.fillStyle = "blue";
-  ctx.fillRect(next_x - 0.5, next_xy - 0.5, 1, 1);
-  ctx.fillStyle = "green";
-  ctx.fillRect(next_yx - 0.5, next_y - 0.5, 1, 1);
-
-  ctx.strokeStyle = "red";
-  ctx.lineWidth = 0.2;
-  ctx.beginPath();
-  ctx.moveTo(p0.x, p0.y);
-  ctx.lineTo(p0.x + line.x, p0.y + line.y);
-  ctx.stroke();
-  ctx.restore();
+  const t1 = performance.now();
 };
 
 const xiaolinWu = (p0, p1) => {
@@ -296,7 +352,6 @@ const xiaolinWu = (p0, p1) => {
   //   plot(xpxl2, ypxl2+1, fpart(yend) * xgap)
   // }
 
-  console.log("xcx", xpxl1, xpxl2);
 
   if (steep) {
     // for(let x = xpxl1 + 1; x <= xpxl2 - 1; x++) {
@@ -310,7 +365,6 @@ const xiaolinWu = (p0, p1) => {
       plot(x, ipart(intery), rfpart(intery));
       plot(x, ipart(intery) + 1, fpart(intery));
       intery = intery + gradient;
-      console.log(yend, x, intery);
       // if(c++ == 1) {
       //   break;
       // }
@@ -358,22 +412,24 @@ const render = () => {
   ctx.lineWidth = 1 / scale;
 
   ctx.globalAlpha = 0.3;
-  switch (mode % 3) {
-    case 0: {
-      ctx.fillStyle = "red";
-      lineColl(p0, p1);
-      break;
-    }
-    case 1: {
-      ctx.fillStyle = "purple";
-      xiaolinWu(p0, p1);
-      break;
-    }
-    case 2:
-      ctx.fillStyle = "blue";
-      raColl(p0, p1);
-      break;
-  }
+  ctx.fillStyle = "red";
+  lineColl(p0, p1);
+  // switch (mode % 3) {
+  //   case 0: {
+  //     ctx.fillStyle = "red";
+  //     lineColl(p0, p1);
+  //     break;
+  //   }
+  //   case 1: {
+  //     ctx.fillStyle = "purple";
+  //     xiaolinWu(p0, p1);
+  //     break;
+  //   }
+  //   case 2:
+  //     ctx.fillStyle = "blue";
+  //     raColl(p0, p1);
+  //     break;
+  // }
 
   ctx.globalAlpha = 1.0;
 
@@ -393,7 +449,7 @@ const render = () => {
   ctx.moveTo(p0.x, p0.y);
   ctx.lineTo(p1.x, p1.y);
   ctx.stroke();
-  let drawBoxes = true;
+  let drawBoxes = false;
   if (drawBoxes) {
     ctx.fillStyle = "green";
     for (let i = 0; i < 128; i++) {
@@ -426,19 +482,23 @@ const render = () => {
     ctx.lineWidth = 2 / scale;
     ctx.setLineDash([0.2, 0.2]);
 
-    for (let i = 0; i < 2048; i++) {
-      ctx.strokeStyle = Math.floor(Math.random() * 16777215).toString(16);
-      const tiles_per_row = Math.floor(canvas.width / TILE_SIZE);
-      const x = i % tiles_per_row;
-      const y = Math.floor(i / tiles_per_row);
+    let bonusGrid = true;
+    if(bonusGrid) {
+       for (let i = 0; i < 2048; i++) {
+        ctx.strokeStyle = Math.floor(Math.random() * 16777215).toString(16);
+        const tiles_per_row = Math.floor(canvas.width / TILE_SIZE);
+        const x = i % tiles_per_row;
+        const y = Math.floor(i / tiles_per_row);
 
-      ctx.strokeRect(
-        x * TILE_SIZE - PADDING,
-        y * TILE_SIZE - PADDING,
-        TILE_SIZE + PADDING * 2,
-        TILE_SIZE + PADDING * 2
-      );
+        ctx.strokeRect(
+          x * TILE_SIZE - PADDING,
+          y * TILE_SIZE - PADDING,
+          TILE_SIZE + PADDING * 2,
+          TILE_SIZE + PADDING * 2
+        );
+      }
     }
+   
 
     ctx.restore();
   }
@@ -490,9 +550,9 @@ window.onmouseup = () => {
 
 //render();
 
-let counter = 0;
+let counter = 219;
 const load = async () => {
-  const res = await fetch("out2.txt");
+  const res = await fetch("output.txt");
   const txt = await res.text();
   const lines = txt.split("\n");
 
@@ -504,9 +564,9 @@ const load = async () => {
       return { x: 0, y: 0, type: "M" };
     }
     const type = parts[0];
-    const s = 1.0;
+    const s = 1;
     const x = (Number(parts[1]) - 70) * s;
-    const y = (Number(parts[2]) - 190) * s;
+    const y = (Number(parts[2]) - 350) * s;
     return { x, y, type };
   };
 
@@ -523,7 +583,8 @@ const load = async () => {
 
     ctx.save();
     ctx.beginPath();
-    ctx.globalAlpha = 0.3;
+    ctx.scale(scale, scale);
+    ctx.globalAlpha = 1;
     ctx.strokeStyle = "black";
     ctx.lineWidth = 1 / scale;
     ctx.globalCompositeOperation = "src-under";
@@ -540,7 +601,7 @@ const load = async () => {
     ctx.restore();
   };
 };
-//load();
+load();
 render();
 
 window.onkeydown = (e) => {

@@ -1,8 +1,8 @@
 const scale = 32;
 let totalCount = 0;
 
-let p0 =  {x: 152.026,y: 331.354} 
-let p1 =  {x: 166.942, y: 340.26} 
+let p0 =  { x: 152.026,y: 331.354} 
+let p1 =  { x: 166.942, y: 340.26} 
 
 const prefs = [p0, p1];
 let pcounter = 0;
